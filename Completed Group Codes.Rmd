@@ -1,0 +1,721 @@
+---
+title: "632 - Group Project R script"
+author: "Van Phan, Hou U Kuong, Sabrina Liu"
+date: "2024-04-03"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+pacman::p_load(ggplot2, tidyverse, gtsummary, dplyr, naniar, pROC, rpart, rpart.plot, 
+               randomForest, yardstick, tidymodels, xgboost, vip, openxlsx, partykit)
+```
+
+## Part 1: Data and Data Description
+```{r}
+# import datasets
+test <- read.csv("air_test.csv", stringsAsFactors=TRUE)
+train <- read.csv("air_train.csv", stringsAsFactors=TRUE)
+```
+
+
+```{r}
+# remove columns X and id for the data set since it is not related to our finding
+dat <- train[,-1:-2]
+
+# check all the variables structure 
+str(train)
+dim(train)
+```
+
+```{r}
+# change binary variable satisfaction to 0 and 1, 1 is satisfied
+dat$satisfaction <- as.factor(ifelse(dat$satisfaction == "satisfied", 1, 0))
+
+# coerce from chr to factor variables 
+dat$Gender= as.factor(dat$Gender)
+dat$Customer.Type= as.factor(dat$Customer.Type)
+dat$Type.of.Travel= as.factor(dat$Type.of.Travel)
+dat$Class= as.factor(dat$Class)
+summary(dat)
+```
+
+```{r}
+# Missing information and visualize 
+gg_miss_var(dat, show_pct = TRUE)
+```
+
+
+```{r}
+# Remove N/A of the Arrival.Delay.in.Minutes
+dat = dat[!is.na(dat$Arrival.Delay.in.Minutes) ,]
+```
+
+
+```{r}
+# Summary Table for Age, Departure.Delay, Arrival.Delay, Flight.Distance
+dat %>% 
+  select(Age, Departure.Delay.in.Minutes, Arrival.Delay.in.Minutes, Flight.Distance) %>% 
+  tbl_summary(statistic = all_continuous() ~ "{mean} ({sd})", 
+              digits = all_continuous() ~ c(2,2))
+```
+
+```{r}
+# Summary Table for 14 variables related to airline services
+dat %>%
+  select(Inflight.wifi.service, Departure.Arrival.time.convenient, Ease.of.Online.booking,
+         Gate.location,Food.and.drink, Online.boarding,Seat.comfort, Inflight.entertainment, 
+         On.board.service, Leg.room.service, Baggage.handling, Checkin.service,
+         Inflight.service, Cleanliness) %>% 
+  tbl_summary(statistic = all_continuous() ~ "{mean} ({sd})", 
+              digits = all_continuous() ~ c(2,2))
+```
+
+
+```{r}
+# Visualize for quantitative variables
+ggplot(gather(dat %>% select_if(is.numeric)), aes(value)) + 
+  geom_histogram(fill = "4E84C4") + 
+  facet_wrap(~key, scales = 'free_x') +
+  guides(x= guide_axis(angle=20)) +
+  theme(text = element_text(size = 10),
+        axis.text.x = element_text(lineheight=0.75)) +
+  theme_bw()
+```
+
+```{r}
+# Visualize for categorical variables
+ggplot(gather(dat %>% select_if(is.factor)), aes(value)) +
+  geom_bar(bins = 10, fill = "lightskyblue") +
+  facet_wrap(~key, scales = "free_x") + labs(x = "Categorical", y = "Value") + theme_bw()
+```
+
+```{r}
+# Summary Table for categorical variables
+dat %>%
+  select(Class, Customer.Type, Gender, satisfaction, Type.of.Travel) %>% 
+  tbl_summary(statistic = all_continuous() ~ "{mean} ({sd})", 
+              digits = all_continuous() ~ c(0,0))
+```
+
+
+## Part 2: Data Modeling 
+```{r}
+# fit the multiple logistic model
+mod <- glm(satisfaction ~ ., data = dat, family = binomial)
+summary(mod)
+```
+
+
+```{r}
+# removed Fligh.Distance from the model 
+model1 <- glm(satisfaction ~ . -Flight.Distance, data = dat, family = binomial)
+summary(model1)
+```
+
+
+```{r}
+# Cross Valid --- create test data set 
+# Using 50%
+probs_test = predict(model1, newdata = test, type = "response")
+length1 = length(probs_test)
+preds_test = rep(0,length1)
+preds_test[probs_test > 0.5] = 1
+head(probs_test)
+
+# make confusion matrix
+tb = table(prediction = preds_test, 
+           acutal = test$satisfaction)
+addmargins(tb)
+```
+last line is the actual data
+
+```{r}
+# Accuracy percent correctly classified
+(tb[1,1] +tb[2,2])/25976
+```
+
+```{r}
+# Sensitivity percent of customer satisfied correctly classified
+sensitivity = tb[2,2]/11403
+sensitivity
+```
+
+
+```{r}
+# Specificity percent of customers are NOT satisfied correctly classified
+specificity = tb[1,1]/14573 
+specificity
+```
+
+
+```{r}
+# ROC Curve
+roc_obj <- roc(test$satisfaction, probs_test)
+plot(1 - roc_obj$specificities, roc_obj$sensitivities, type="l", col = "cornflowerblue",
+xlab = "1 - Specificity", ylab = "Sensitivity")
+
+# plot red point corresponding to 0.5 threshold:
+points(x = 423/4278, y = 2891/3490, col="blue", pch=19)
+abline(0, 1, lty=2) # 1-1 line
+```
+
+```{r}
+auc(roc_obj)
+```
+
+
+```{r}
+# Decision Tree
+t1 = rpart(satisfaction ~. -Flight.Distance, data = dat)
+
+#plot the tree with rpart.plot for more customization options
+rpart.plot(t1, main = "Decision Tree for Satisfaction", 
+           box.palette = "yellowgreen",
+           shadow.col = "olivedrab", cex = 0.8)
+```
+
+
+## Part 3: Using together test and train dataset for model comparison purpose  
+```{r}
+# remove columns X and id for the test data 
+airtest <- test[,-1:-2]
+```
+
+```{r}
+# change binary variable satisfaction to 0 and 1, 1 is satisfied
+airtest$satisfaction <- as.factor(ifelse(airtest$satisfaction == "satisfied", 1, 0))
+
+# coerce from chr to factor variables 
+airtest$Gender= as.factor(airtest$Gender)
+airtest$Customer.Type= as.factor(airtest$Customer.Type)
+airtest$Type.of.Travel= as.factor(airtest$Type.of.Travel)
+airtest$Class= as.factor(airtest$Class)
+
+airtest <- airtest |>
+  janitor::clean_names()
+summary(airtest)
+```
+
+```{r}
+# Missing information and visualize 
+gg_miss_var(airtest, show_pct = TRUE)
+```
+
+```{r}
+# Remove N/A of the Arrival.Delay.in.Minutes
+#  = airtest[!is.na(airtest$Arrival.Delay.in.Minutes) ,]
+airtest <- airtest %>% drop_na()
+```
+
+```{r}
+# remove columns X and id for the test data 
+airtrain <- train[,-1:-2]
+```
+
+```{r}
+airtrain$satisfaction <- as.factor(ifelse(airtrain$satisfaction == "satisfied", 1, 0))
+
+# coerce from chr to factor variables 
+airtrain$Gender= as.factor(airtrain$Gender)
+airtrain$Customer.Type= as.factor(airtrain$Customer.Type)
+airtrain$Type.of.Travel= as.factor(airtrain$Type.of.Travel)
+airtrain$Class= as.factor(airtrain$Class)
+
+airtrain <- airtrain |>
+  janitor::clean_names()
+summary(airtrain)
+```
+
+```{r}
+# Remove N/A of the Arrival.Delay.in.Minutes
+airtrain<- airtrain %>% drop_na()
+```
+
+```{r}
+str(airtrain)
+```
+
+
+```{r}
+# Performance on train data
+# Logisitcs
+log_model <- glm(satisfaction ~ ., data = airtrain, family = binomial)
+
+summary(log_model)
+
+log_step <-stats::step(log_model)
+summary(log_step)
+
+
+# Performance on train data
+pred <- airtrain %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    list(.pred_class = as.factor(as.integer(predict(log_step, newdata = airtrain, type = "response") >0.5)))
+  ) %>%
+  rename(sat_log = .pred_class)
+
+confusion_log_1 <- pred %>%
+  conf_mat(truth = 1, estimate = sat_log)
+
+log_train_acc<-accuracy(pred, satisfaction, sat_log)
+
+
+# Performance on test data
+pred <- airtest %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    list(.pred_class2 = as.factor(as.integer(predict(log_step, newdata = airtest, type = "response") >0.5)))
+  ) %>%
+  rename(sat_log = .pred_class2)
+
+
+confusion_log_2 <- pred %>%
+  conf_mat(truth = 1, estimate = sat_log)
+
+confusion_log_2
+
+log_test_acc<-accuracy(pred, satisfaction, sat_log)
+
+# Predict probabilities
+predicted_probs <- predict(log_step, type = "response",newdata = airtrain)
+
+# Calculate AUC
+roc_obj <- roc(airtrain$satisfaction, predicted_probs)
+log_train_auc<- auc(roc_obj)
+
+
+# Predict probabilities
+predicted_probs <- predict(log_step, type = "response",newdata = airtest)
+
+# Calculate AUC
+roc_obj <- roc(airtest$satisfaction, predicted_probs)
+log_test_auc<- auc(roc_obj)
+```
+
+# Decision tree model
+```{r}
+mod_dtree <- decision_tree(mode = "classification") %>%
+  set_engine("rpart") %>%
+  fit(satisfaction ~., data = airtrain)
+
+split_val <- mod_dtree$fit$splits %>%
+  as_tibble() %>% 
+  pull(index)
+
+plot(as.party(mod_dtree$fit))
+plot(as.party(mod_dtree$fit), type = "simple",gp=gpar(cex=0.9))
+
+##train###
+pred <- airtrain %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_dtree, new_data = airtrain, type = "class")
+  ) %>%
+  rename(sat_log = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = sat_log)
+confusion
+
+dtree_train_acc<-accuracy(pred, satisfaction, sat_log)
+
+mod_dtree %>%
+  predict(airtrain, type = "prob") %>%
+  bind_cols(airtrain) %>%
+  roc_curve(satisfaction, .pred_1,event_level = "second") %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() 
+
+mod_dtree %>%
+  predict(airtrain, type = "prob") %>%
+   bind_cols(airtrain) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+##test###
+
+pred <- airtest %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_dtree, new_data = airtest, type = "class")
+  ) %>%
+  rename(sat_log = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = sat_log)
+confusion
+
+dtree_test_acc<-accuracy(pred, satisfaction, sat_log)
+
+mod_dtree %>%
+  predict(airtest, type = "prob") %>%
+  bind_cols(airtest) %>%
+  roc_curve(satisfaction, .pred_1,event_level = "second") %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() 
+
+mod_dtree %>%
+  predict(airtest, type = "prob") %>%
+   bind_cols(airtest) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+
+###
+# Predict probabilities
+predicted_probs <- predict(mod_dtree, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtrain$satisfaction, predicted_probs)
+dtree_train_auc<- auc(roc_obj)
+
+
+# Predict probabilities
+predicted_probs <- predict(mod_dtree, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtest$satisfaction, predicted_probs)
+dtree_test_auc<- auc(roc_obj)
+```
+
+# xgb Boosting tree
+```{r}
+mod_xgb <- boost_tree(trees = 50) %>% 
+  set_engine("xgboost") %>%
+  set_mode("classification") %>%
+  fit(satisfaction ~., data = airtrain)
+
+xgb.importance(model=mod_xgb$fit)
+
+xgb.importance(model=mod_xgb$fit) %>% xgb.ggplot.importance(
+top_n=10, measure=NULL, rel_to_first = F) 
+
+summary(mod_xgb)
+
+##train###
+pred <- airtrain %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_xgb, new_data = airtrain, type = "class")
+  ) %>%
+  rename(satisfaction_null = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = satisfaction_null)
+
+mod_xgb %>%
+  predict(airtrain, type = "prob") %>%
+  bind_cols(airtrain) %>%
+  roc_curve(satisfaction, .pred_1,event_level = "second") %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() 
+
+mod_xgb %>%
+  predict(airtrain, type = "prob") %>%
+   bind_cols(airtrain) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+
+confusion
+
+xgb_train_acc<-accuracy(pred, satisfaction, satisfaction_null)
+
+###test###
+pred <- airtest %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_xgb, new_data = airtest, type = "class")
+  ) %>%
+  rename(satisfaction_null = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = satisfaction_null)
+
+confusion
+
+xgb_test_acc<-accuracy(pred, satisfaction, satisfaction_null)
+
+mod_xgb %>%
+  predict(airtest, type = "prob") %>%
+  bind_cols(airtest) %>%
+  roc_curve(satisfaction, .pred_1,event_level = "second") %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal() 
+
+mod_xgb %>%
+  predict(airtest, type = "prob") %>%
+   bind_cols(airtest) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+
+predicted_probs <- predict(mod_xgb, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtrain$satisfaction, predicted_probs)
+xgb_train_auc<- auc(roc_obj)
+
+
+# Predict probabilities
+predicted_probs <- predict(mod_xgb, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtest$satisfaction, predicted_probs)
+xgb_test_auc<- auc(roc_obj)
+```
+
+# Random Forest
+```{r}
+##train###
+mod_rf_ranger <- rand_forest(trees = 50) %>%
+  set_engine("ranger",importance = "impurity") %>%
+  set_mode("classification") %>%
+  fit(satisfaction ~ ., data = airtrain)
+
+perf_train <-mod_rf_ranger %>%
+  predict(airtrain) %>%
+  bind_cols(airtrain) %>%
+  metrics(truth = satisfaction, estimate = .pred_class)
+
+RF_train_acc<-perf_train[1,3]
+
+mod_rf_ranger %>%
+  predict(airtrain) %>%
+  bind_cols(airtrain) %>%
+  conf_mat(truth = satisfaction, estimate = .pred_class)
+
+mod_rf_ranger %>%
+  predict(airtrain, type = "prob") %>%
+  bind_cols(airtrain) %>%
+  roc_curve(satisfaction, .pred_1,event_level = "second") %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal()
+
+mod_rf_ranger %>%
+  predict(airtrain, type = "prob") %>%
+   bind_cols(airtrain) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+##test###
+perf_test <-mod_rf_ranger %>%
+  predict(airtest) %>%
+  bind_cols(airtest) %>%
+  metrics(truth = satisfaction, estimate = .pred_class)
+
+RF_test_acc<-perf_test[1,3]
+
+mod_rf_ranger %>%
+  predict(airtest) %>%
+  bind_cols(airtest) %>%
+  conf_mat(truth = satisfaction, estimate = .pred_class)
+
+mod_rf_ranger %>%
+  predict(airtest, type = "prob") %>%
+  bind_cols(airtest) %>%
+  roc_curve(satisfaction, .pred_1,event_level = "second") %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+  geom_path() +
+  geom_abline(lty = 3) +
+  coord_equal()
+
+mod_rf_ranger %>%
+  predict(airtest, type = "prob") %>%
+   bind_cols(airtest) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+
+######using workflow to get variable importance:###
+rf_mod<- rand_forest(trees = 50) %>%
+  set_engine("ranger",importance = "impurity") %>%
+  set_mode("classification") 
+
+rf_recipe <- 
+  recipe(satisfaction ~ ., data = airtrain)
+
+rf_workflow <- 
+  workflow() %>% 
+  add_model(rf_mod) %>% 
+  add_recipe(rf_recipe)
+
+rf_workflow %>% 
+  fit(airtrain) %>% 
+  extract_fit_parsnip() %>% 
+  vip(num_features = 10)
+
+predicted_probs <- predict(mod_rf_ranger, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtrain$satisfaction, predicted_probs)
+rf_train_auc<- auc(roc_obj)
+
+
+# Predict probabilities
+predicted_probs <- predict(mod_rf_ranger, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtest$satisfaction, predicted_probs)
+rf_test_auc<- auc(roc_obj)
+```
+
+# LASSO
+```{r}
+mod_lasso <- logistic_reg(penalty = 0.001, mixture = 1) %>% 
+  set_engine("glmnet") %>%
+  set_mode("classification") %>%
+  fit(satisfaction ~ ., data = airtrain)
+
+summary(mod_lasso)
+
+broom_lasso<-broom::tidy(mod_lasso)
+broom_lasso[order(abs(broom_lasso$estimate),decreasing = TRUE),]
+write.xlsx(broom_lasso[order(abs(broom_lasso$estimate),decreasing = TRUE),], "lasso_output.xlsx")
+pred <- airtrain %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_lasso, new_data = airtrain, type = "class")
+  ) %>%
+  rename(satisfaction_null = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = satisfaction_null)
+confusion
+
+lasso_train_acc <- accuracy(pred, satisfaction, satisfaction_null)
+
+###test####
+pred <- airtest %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_lasso, new_data = airtest, type = "class")
+  ) %>%
+  rename(satisfaction_null = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = satisfaction_null)
+confusion
+
+lasso_test_acc <-accuracy(pred, satisfaction, satisfaction_null)
+lasso_test_acc
+
+mod_lasso %>%
+  predict(airtest, type = "prob") %>%
+   bind_cols(airtest) %>%
+   roc_auc(satisfaction, .pred_1,event_level = "second")
+
+
+predicted_probs <- predict(mod_lasso, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtrain$satisfaction, predicted_probs)
+lasso_train_auc<- auc(roc_obj)
+
+
+# Predict probabilities
+predicted_probs <- predict(mod_lasso, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtest$satisfaction, predicted_probs)
+lasso_test_auc<- auc(roc_obj)
+```
+
+# RIDGE
+```{r}
+mod_ridge <- logistic_reg(penalty = 0.001, mixture = 0) %>% 
+  set_engine("glmnet") %>%
+  set_mode("classification") %>%
+  fit(satisfaction ~ ., data = airtrain)
+
+summary(mod_ridge)
+
+broom_ridge <-data.frame(broom::tidy(mod_ridge))
+broom_ridge[order(abs(broom_ridge$estimate),decreasing = TRUE),]
+write.xlsx(broom_ridge[order(abs(broom_ridge$estimate),decreasing = TRUE),], "ridge_output.xlsx")
+
+
+pred <- airtrain %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_ridge, new_data = airtrain, type = "class")
+  ) %>%
+  rename(satisfaction_null = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = satisfaction_null)
+confusion
+
+ridge_train_acc <- accuracy(pred, satisfaction, satisfaction_null)
+
+###test####
+pred <- airtest %>%
+  dplyr::select(satisfaction) %>%
+  bind_cols(
+    predict(mod_ridge, new_data = airtest, type = "class")
+  ) %>%
+  rename(satisfaction_null = .pred_class)
+
+confusion <- pred %>%
+  conf_mat(truth = 1, estimate = satisfaction_null)
+confusion
+
+ridge_test_acc <-accuracy(pred, satisfaction, satisfaction_null)
+ridge_test_acc
+
+
+predicted_probs <- predict(mod_ridge, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtrain$satisfaction, predicted_probs)
+ridge_train_auc<- auc(roc_obj)
+
+
+# Predict probabilities
+predicted_probs <- predict(mod_ridge, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
+
+# Calculate AUC
+roc_obj <- roc(airtest$satisfaction, predicted_probs)
+ridge_test_auc<- auc(roc_obj)
+```
+
+# Result for model perfomance and comparison 
+```{r}
+c(
+log_train_acc[,3],
+lasso_train_acc[,3],
+ridge_train_acc[,3],
+dtree_train_acc[,3],
+RF_train_acc,
+xgb_train_acc[,3],
+log_test_acc[,3],
+lasso_test_acc[,3],
+ridge_test_acc[,3],
+dtree_test_acc[,3],
+RF_test_acc,
+xgb_test_acc[,3])
+
+
+c(
+log_train_auc,
+lasso_train_auc,
+ridge_train_auc,
+dtree_train_auc,
+rf_train_auc,
+xgb_train_auc,
+log_test_auc,
+lasso_test_auc,
+ridge_test_auc,
+dtree_test_auc,
+rf_test_auc,
+xgb_test_auc)
+```
