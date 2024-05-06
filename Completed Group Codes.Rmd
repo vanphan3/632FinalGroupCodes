@@ -21,13 +21,12 @@ test <- read.csv("air_test.csv", stringsAsFactors=TRUE)
 train <- read.csv("air_train.csv", stringsAsFactors=TRUE)
 ```
 
-
 ```{r}
 # remove columns X and id for the data set since it is not related to our finding
 dat <- train[,-1:-2]
 
 # check all the variables structure 
-str(train)
+#str(train)
 dim(train)
 ```
 
@@ -36,10 +35,10 @@ dim(train)
 dat$satisfaction <- as.factor(ifelse(dat$satisfaction == "satisfied", 1, 0))
 
 # coerce from chr to factor variables 
-dat$Gender= as.factor(dat$Gender)
-dat$Customer.Type= as.factor(dat$Customer.Type)
-dat$Type.of.Travel= as.factor(dat$Type.of.Travel)
-dat$Class= as.factor(dat$Class)
+dat$Gender <- as.factor(dat$Gender)
+dat$Customer.Type <- as.factor(dat$Customer.Type)
+dat$Type.of.Travel <- as.factor(dat$Type.of.Travel)
+dat$Class <- as.factor(dat$Class)
 summary(dat)
 ```
 
@@ -48,12 +47,10 @@ summary(dat)
 gg_miss_var(dat, show_pct = TRUE)
 ```
 
-
 ```{r}
 # Remove N/A of the Arrival.Delay.in.Minutes
 dat = dat[!is.na(dat$Arrival.Delay.in.Minutes) ,]
 ```
-
 
 ```{r}
 # Summary Table for Age, Departure.Delay, Arrival.Delay, Flight.Distance
@@ -73,7 +70,6 @@ dat %>%
   tbl_summary(statistic = all_continuous() ~ "{mean} ({sd})", 
               digits = all_continuous() ~ c(2,2))
 ```
-
 
 ```{r}
 # Visualize for quantitative variables
@@ -102,13 +98,12 @@ dat %>%
 ```
 
 
-## Part 2: Data Modeling 
+## Part 2: Data Modeling - Multiple Logistic Regression 
 ```{r}
 # fit the multiple logistic model
 mod <- glm(satisfaction ~ ., data = dat, family = binomial)
 summary(mod)
 ```
-
 
 ```{r}
 # removed Fligh.Distance from the model 
@@ -116,18 +111,17 @@ model1 <- glm(satisfaction ~ . -Flight.Distance, data = dat, family = binomial)
 summary(model1)
 ```
 
-
 ```{r}
 # Cross Valid --- create test data set 
 # Using 50%
-probs_test = predict(model1, newdata = test, type = "response")
-length1 = length(probs_test)
-preds_test = rep(0,length1)
-preds_test[probs_test > 0.5] = 1
+probs_test <- predict(model1, newdata = test, type = "response")
+length1 <- length(probs_test)
+preds_test <- rep(0,length1)
+preds_test[probs_test > 0.5] <- 1
 head(probs_test)
 
 # make confusion matrix
-tb = table(prediction = preds_test, 
+tb <- table(prediction = preds_test, 
            acutal = test$satisfaction)
 addmargins(tb)
 ```
@@ -135,7 +129,7 @@ last line is the actual data
 
 ```{r}
 # Accuracy percent correctly classified
-(tb[1,1] +tb[2,2])/25976
+(tb[1,1] + tb[2,2])/25976
 ```
 
 ```{r}
@@ -151,22 +145,27 @@ specificity = tb[1,1]/14573
 specificity
 ```
 
-
 ```{r}
-# ROC Curve
 roc_obj <- roc(test$satisfaction, probs_test)
-plot(1 - roc_obj$specificities, roc_obj$sensitivities, type="l", col = "cornflowerblue",
-xlab = "1 - Specificity", ylab = "Sensitivity")
 
-# plot red point corresponding to 0.5 threshold:
-points(x = 423/4278, y = 2891/3490, col="blue", pch=19)
-abline(0, 1, lty=2) # 1-1 line
+# Plot the ROC Curve
+plot(1 - roc_obj$specificities, roc_obj$sensitivities, type="l", 
+     xlab = "1 - Specificity", ylab = "Sensitivity", 
+     main = "ROC Curve", col = "steelblue", lwd = 2, xlim = c(0,1), ylim = c(0,1))
+
+# Highlight the threshold point:
+points(x = 423/4278, y = 2891/3490, col="steelblue4", pch=19, cex = 1.5)
+
+# Add the diagonal line
+abline(0, 1, lty=2, col = "gray")
+
+# Add legend, if necessary
+legend("bottomright", legend = c("ROC Curve", "Threshold (0.5)"), col = c("steelblue", "steelblue4"), lwd = 2, pch = 19, bty = "n")
 ```
 
 ```{r}
 auc(roc_obj)
 ```
-
 
 ```{r}
 # Decision Tree
@@ -178,8 +177,8 @@ rpart.plot(t1, main = "Decision Tree for Satisfaction",
            shadow.col = "olivedrab", cex = 0.8)
 ```
 
-
-## Part 3: Using together test and train dataset for model comparison purpose  
+## Part 3: Other classifiers (LASSO, RIDGE, Random Forest, Boosting Tree)
+### Using both test and train datasets for model comparison purpose  
 ```{r}
 # remove columns X and id for the test data 
 airtest <- test[,-1:-2]
@@ -190,10 +189,10 @@ airtest <- test[,-1:-2]
 airtest$satisfaction <- as.factor(ifelse(airtest$satisfaction == "satisfied", 1, 0))
 
 # coerce from chr to factor variables 
-airtest$Gender= as.factor(airtest$Gender)
-airtest$Customer.Type= as.factor(airtest$Customer.Type)
-airtest$Type.of.Travel= as.factor(airtest$Type.of.Travel)
-airtest$Class= as.factor(airtest$Class)
+airtest$Gender <- as.factor(airtest$Gender)
+airtest$Customer.Type <- as.factor(airtest$Customer.Type)
+airtest$Type.of.Travel <- as.factor(airtest$Type.of.Travel)
+airtest$Class <- as.factor(airtest$Class)
 
 airtest <- airtest |>
   janitor::clean_names()
@@ -220,10 +219,10 @@ airtrain <- train[,-1:-2]
 airtrain$satisfaction <- as.factor(ifelse(airtrain$satisfaction == "satisfied", 1, 0))
 
 # coerce from chr to factor variables 
-airtrain$Gender= as.factor(airtrain$Gender)
-airtrain$Customer.Type= as.factor(airtrain$Customer.Type)
-airtrain$Type.of.Travel= as.factor(airtrain$Type.of.Travel)
-airtrain$Class= as.factor(airtrain$Class)
+airtrain$Gender <- as.factor(airtrain$Gender)
+airtrain$Customer.Type <- as.factor(airtrain$Customer.Type)
+airtrain$Type.of.Travel <- as.factor(airtrain$Type.of.Travel)
+airtrain$Class <- as.factor(airtrain$Class)
 
 airtrain <- airtrain |>
   janitor::clean_names()
@@ -232,24 +231,18 @@ summary(airtrain)
 
 ```{r}
 # Remove N/A of the Arrival.Delay.in.Minutes
-airtrain<- airtrain %>% drop_na()
+airtrain <- airtrain %>% drop_na()
 ```
-
-```{r}
-str(airtrain)
-```
-
 
 ```{r}
 # Performance on train data
-# Logisitcs
+# Logistics Regression
 log_model <- glm(satisfaction ~ ., data = airtrain, family = binomial)
 
 summary(log_model)
 
 log_step <-stats::step(log_model)
 summary(log_step)
-
 
 # Performance on train data
 pred <- airtrain %>%
@@ -264,7 +257,6 @@ confusion_log_1 <- pred %>%
 
 log_train_acc<-accuracy(pred, satisfaction, sat_log)
 
-
 # Performance on test data
 pred <- airtest %>%
   dplyr::select(satisfaction) %>%
@@ -272,7 +264,6 @@ pred <- airtest %>%
     list(.pred_class2 = as.factor(as.integer(predict(log_step, newdata = airtest, type = "response") >0.5)))
   ) %>%
   rename(sat_log = .pred_class2)
-
 
 confusion_log_2 <- pred %>%
   conf_mat(truth = 1, estimate = sat_log)
@@ -287,7 +278,6 @@ predicted_probs <- predict(log_step, type = "response",newdata = airtrain)
 # Calculate AUC
 roc_obj <- roc(airtrain$satisfaction, predicted_probs)
 log_train_auc<- auc(roc_obj)
-
 
 # Predict probabilities
 predicted_probs <- predict(log_step, type = "response",newdata = airtest)
@@ -338,8 +328,8 @@ mod_dtree %>%
    bind_cols(airtrain) %>%
    roc_auc(satisfaction, .pred_1,event_level = "second")
 
-##test###
 
+##test###
 pred <- airtest %>%
   dplyr::select(satisfaction) %>%
   bind_cols(
@@ -367,7 +357,6 @@ mod_dtree %>%
    bind_cols(airtest) %>%
    roc_auc(satisfaction, .pred_1,event_level = "second")
 
-
 ###
 # Predict probabilities
 predicted_probs <- predict(mod_dtree, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
@@ -375,7 +364,6 @@ predicted_probs <- predict(mod_dtree, type = "prob",new_data = airtrain) %>% dpl
 # Calculate AUC
 roc_obj <- roc(airtrain$satisfaction, predicted_probs)
 dtree_train_auc<- auc(roc_obj)
-
 
 # Predict probabilities
 predicted_probs <- predict(mod_dtree, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
@@ -424,7 +412,6 @@ mod_xgb %>%
    bind_cols(airtrain) %>%
    roc_auc(satisfaction, .pred_1,event_level = "second")
 
-
 confusion
 
 xgb_train_acc<-accuracy(pred, satisfaction, satisfaction_null)
@@ -458,13 +445,11 @@ mod_xgb %>%
    bind_cols(airtest) %>%
    roc_auc(satisfaction, .pred_1,event_level = "second")
 
-
 predicted_probs <- predict(mod_xgb, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
 
 # Calculate AUC
 roc_obj <- roc(airtrain$satisfaction, predicted_probs)
 xgb_train_auc<- auc(roc_obj)
-
 
 # Predict probabilities
 predicted_probs <- predict(mod_xgb, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
@@ -535,8 +520,7 @@ mod_rf_ranger %>%
    bind_cols(airtest) %>%
    roc_auc(satisfaction, .pred_1,event_level = "second")
 
-
-######using workflow to get variable importance:###
+######using workflow to get importance variable###
 rf_mod<- rand_forest(trees = 50) %>%
   set_engine("ranger",importance = "impurity") %>%
   set_mode("classification") 
@@ -559,7 +543,6 @@ predicted_probs <- predict(mod_rf_ranger, type = "prob",new_data = airtrain) %>%
 # Calculate AUC
 roc_obj <- roc(airtrain$satisfaction, predicted_probs)
 rf_train_auc<- auc(roc_obj)
-
 
 # Predict probabilities
 predicted_probs <- predict(mod_rf_ranger, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
@@ -614,13 +597,11 @@ mod_lasso %>%
    bind_cols(airtest) %>%
    roc_auc(satisfaction, .pred_1,event_level = "second")
 
-
 predicted_probs <- predict(mod_lasso, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
 
 # Calculate AUC
 roc_obj <- roc(airtrain$satisfaction, predicted_probs)
 lasso_train_auc<- auc(roc_obj)
-
 
 # Predict probabilities
 predicted_probs <- predict(mod_lasso, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
@@ -642,7 +623,6 @@ summary(mod_ridge)
 broom_ridge <-data.frame(broom::tidy(mod_ridge))
 broom_ridge[order(abs(broom_ridge$estimate),decreasing = TRUE),]
 write.xlsx(broom_ridge[order(abs(broom_ridge$estimate),decreasing = TRUE),], "ridge_output.xlsx")
-
 
 pred <- airtrain %>%
   dplyr::select(satisfaction) %>%
@@ -672,13 +652,11 @@ confusion
 ridge_test_acc <-accuracy(pred, satisfaction, satisfaction_null)
 ridge_test_acc
 
-
 predicted_probs <- predict(mod_ridge, type = "prob",new_data = airtrain) %>% dplyr::select(.pred_1) %>% pull()
 
 # Calculate AUC
 roc_obj <- roc(airtrain$satisfaction, predicted_probs)
 ridge_train_auc<- auc(roc_obj)
-
 
 # Predict probabilities
 predicted_probs <- predict(mod_ridge, type = "prob",new_data = airtest) %>% dplyr::select(.pred_1) %>% pull()
@@ -703,7 +681,6 @@ ridge_test_acc[,3],
 dtree_test_acc[,3],
 RF_test_acc,
 xgb_test_acc[,3])
-
 
 c(
 log_train_auc,
